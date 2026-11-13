@@ -573,26 +573,41 @@ class RedditSource extends WallpaperSource {
   fetch() {
     const path = this.config.source;
 
+    // Reddit blocks unauthenticated .json requests (HTTP 403), but the Atom feed
+    // still works.
     const url = path.toLowerCase().startsWith("/r/")
-      ? `https://www.reddit.com${path}/hot.json`
-      : `https://www.reddit.com${path}.json`;
+      ? `https://www.reddit.com${path}/hot.rss?limit=100`
+      : `https://www.reddit.com${path}.rss?limit=100`;
     this.request({ url, headers: { "user-agent": "MagicMirror:MMM-Wallpaper:v1.0 (by /u/kolbyhack)" } });
   }
 
+  // The feed has no over_18 flag or preview variants, so `nsfw` can't be
+  // enforced per post and the original image is always used.
   processResponse(body) {
+    const decode = (str) => str
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, "\"")
+      .replace(/&#39;/g, "'")
+      .replace(/&#32;/g, " ")
+      .replace(/&amp;/g, "&");
+
     const images = [];
+    for (const entry of body.split("<entry>").slice(1)) {
+      const title = /<title>(.*?)<\/title>/s.exec(entry);
+      const content = /<content[^>]*>(.*?)<\/content>/s.exec(entry);
+      if (!title || !content) {
+        continue;
+      }
 
-    for (const post of JSON.parse(body).data.children) {
-      if (post.kind === "t3" && !post.data.pinned && !post.data.stickied && post.data.post_hint === "image" && (this.config.nsfw || !post.data.over_18)) {
-        const variants = post.data.preview.images[0].resolutions.slice(0);
+      const link = /<a href="([^"]+)">\[link\]<\/a>/.exec(decode(content[1]));
+      if (!link || !/^https:\/\/i\.redd\.it\/.+\.(jpe?g|png|webp)(\?.*)?$/i.test(link[1])) {
+        continue;
+      }
 
-        variants.push(post.data.preview.images[0].source);
-        variants.map(v => { v.url = v.url.split("&amp;").join("&"); return v; });
-        variants.sort((a, b) => a.width * a.height - b.width * b.height);
-        images.push({ url: post.data.url.replace("&amp;", "&"), caption: post.data.title, variants });
-        if (images.length === this.config.maximumEntries) {
-          break;
-        }
+      images.push({ url: link[1], caption: decode(title[1]) });
+      if (images.length === this.config.maximumEntries) {
+        break;
       }
     }
     return images;
