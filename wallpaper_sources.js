@@ -38,7 +38,10 @@ class WallpaperSource {
       if (Array.isArray(images) && images.length > 0) {
         this.cacheResult(images);
       }
-    }));
+    })).catch(error => {
+      // Keep showing the cached images; the next refresh will try again.
+      console.error(`MMM-Wallpaper: Failed to fetch ${params.url}: ${error.message}`);
+    });
   }
 
   cacheResult(images) {
